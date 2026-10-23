@@ -3,7 +3,7 @@
 ## Current milestone: M0 — Scaffold and tooling
 
 ### M0 tasks
-- [ ] Initialise Turborepo + pnpm workspaces
+- [x] Initialise Turborepo + pnpm workspaces
 - [ ] Create apps/web (Next.js, TS strict, Tailwind)
 - [ ] Create packages (ui, db, ai, feeds, i18n, config) with stubs; apps/worker stub
 - [ ] Shared tsconfig + eslint + prettier
@@ -99,3 +99,4 @@
 | Date | Task | Requirement IDs | Notes / follow-ups |
 |---|---|---|---|
 | 2026-10-23 | FRS review; CLAUDE.md + FRS v0.2; PROGRESS.md | NFR-04, NFR-12, NFR-13, CHK-10 | Open before M4: newsletter provider, analytics tool. |
+| 2026-10-23 | Initialise Turborepo + pnpm workspaces | M0 | Root package.json (pnpm 10.28, Node ≥22), pnpm-workspace.yaml (apps/*, packages/*), turbo.json pipeline, turbo 2.11.10, .gitignore, .nvmrc. Red: `pnpm turbo run build --dry` failed with no manifest; green: workspace resolves. Follow-up: set TURBO_TELEMETRY_DISABLED=1 in CI/containers. |

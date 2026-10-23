@@ -1,0 +1,19 @@
+{
+  "name": "intinet-wa",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "build": "turbo run build"
+  },
+  "devDependencies": {
+    "turbo": "2.11.10"
+  }
+}

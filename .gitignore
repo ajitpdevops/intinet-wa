@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+.next/
+dist/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# tests
+coverage/
+playwright-report/
+test-results/
+
+# env files (only the documented, value-free ones are committed)
+.env
+.env.*
+!.env.example
+!.env.docker
+
+# misc
+.DS_Store
+*.log
