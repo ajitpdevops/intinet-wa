@@ -12,9 +12,9 @@ intinat ("Internet is Under Attack") makes security threats and scams understand
 
 1. **Start of session:** read `CLAUDE.md`, `docs/FRS.md`, and `docs/PROGRESS.md` (create `PROGRESS.md` on the first session from the template below).
 2. **Pick the next task:** the first unchecked task in the current milestone in `PROGRESS.md`. Never skip ahead to a later milestone.
-3. **Plan before coding:** state which requirement IDs the task covers, which files you will create or change, and how you will test it. Wait for approval if the task touches the database schema, auth, privacy handling, or adds a new dependency or external service.
-4. **Implement in small steps.** Keep each change focused on the task.
-5. **Verify:** run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`. Fix failures before calling the task done.
+3. **Plan before coding:** state which requirement IDs the task covers, which files you will create or change, and **the list of test cases you will write first**. Wait for approval if the task touches the database schema, auth, privacy handling, or adds a new dependency, container image or external service.
+4. **Test first, then implement (TDD).** Write the failing test(s), run them and show they fail for the expected reason, then write the minimum code to pass, then refactor. Repeat in small red → green → refactor steps. See "Test-driven development" below.
+5. **Verify:** run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` locally, **and** the containerised suite `pnpm docker:test` (and `pnpm docker:e2e` when UI flows changed). Fix failures before calling the task done.
 6. **Update `docs/PROGRESS.md`:** tick the task, note what was done, and list any follow-ups or decisions.
 7. **Suggest a commit message** in Conventional Commits format (e.g. `feat(check): add redaction for OTP and card numbers [CHK-06]`).
 8. **Stop and report.** Summarise what changed and what the next task is. Do not start the next task unless asked.
@@ -34,8 +34,9 @@ If a requirement is unclear or conflicts with another, ask instead of guessing. 
 - **Bot protection:** Cloudflare Turnstile
 - **Tests:** Vitest (unit), Playwright (E2E)
 - **Errors:** Sentry
+- **Containers:** Docker + Docker Compose for local dev, tests and CI (see "Containers" below)
 - **Hosting:** Vercel (web); worker jobs scheduled via GitHub Actions cron or platform cron
-- **CI:** GitHub Actions
+- **CI:** GitHub Actions, running the same Compose services used locally
 
 Use the latest stable versions when adding packages. Do not add a dependency that duplicates something already in the stack; ask first before adding any new external service.
 
@@ -71,8 +72,11 @@ intinat-wa/
 │   ├── FRS.md                  # functional requirements (source of truth)
 │   ├── PROGRESS.md             # milestone checklist and session log
 │   └── decisions/              # short ADRs for notable decisions
+├── docker/                     # Dockerfiles and local stand-ins (e.g. ai-mock)
+├── compose.yaml                # every service runnable locally and in CI
 ├── .github/workflows/          # CI and scheduled jobs
 ├── .env.example                # every env var, documented
+├── .env.docker                 # non-secret defaults for the Compose stack (safe to commit)
 └── CLAUDE.md
 ```
 
@@ -90,9 +94,60 @@ pnpm test:e2e         # playwright E2E tests
 pnpm build            # production build (also validates MDX frontmatter)
 pnpm db:generate      # generate migration from schema changes
 pnpm db:migrate       # apply migrations
+
+pnpm docker:up        # docker compose up: db, redis, web, worker, mocks
+pnpm docker:down      # stop and remove the stack (add -v to wipe data)
+pnpm docker:test      # unit + integration tests inside containers against real Postgres/Redis
+pnpm docker:e2e       # Playwright E2E in a container against the web container
 ```
 
 If a command doesn't exist yet, create it as part of M0.
+
+## Containers (Docker Compose)
+
+Everything must be runnable with Docker Compose, so the app can be tested on any machine and in CI with no cloud accounts.
+
+- **One `compose.yaml` at the root.** Use profiles: default (app stack), `test` (test runner), `e2e` (Playwright).
+- **Services:**
+  - `db` — `postgres` (same major version as Supabase), with a healthcheck.
+  - `migrate` — one-shot job that runs `pnpm db:migrate`; `web`/`worker`/tests depend on it completing.
+  - `redis` + `redis-http` — Redis plus an Upstash-compatible REST proxy, so the `@upstash/redis` client works unchanged.
+  - `ai-mock` — tiny HTTP server that imitates the Anthropic Messages API with deterministic fixture responses; the real SDK points at it via `ANTHROPIC_BASE_URL`. Never call the real AI API from tests or CI.
+  - `web` — Next.js built with `output: "standalone"`, multi-stage Dockerfile, non-root user.
+  - `worker` — the `apps/worker` jobs, runnable on demand (`docker compose run --rm worker <job>`).
+  - `test` — runs Vitest (unit + integration) against `db`, `redis-http`, `ai-mock`.
+  - `e2e` — official Playwright image running `apps/web/e2e` against `web`.
+  - Later milestones add `mailpit` (email, M7) and the Supabase auth stack (M7) the same way.
+- **External services get a local stand-in or a "disabled" mode:** Turnstile uses Cloudflare's published test keys; Sentry, analytics, newsletter and Safe Browsing are no-ops when their env var is empty. The app must boot and pass tests with only `.env.docker`.
+- **Every service has a healthcheck**; use `depends_on: condition: service_healthy` / `service_completed_successfully`.
+- **CI runs the same Compose commands** as local (`pnpm docker:test`, `pnpm docker:e2e`). No test may depend on something CI has but Compose doesn't.
+- Pin image versions (no `latest`). Adding a new image counts as adding a dependency: ask first.
+- Vercel stays the production host; Docker is for dev, test and CI parity. Don't add anything that only works in one of them.
+
+## Test-driven development
+
+All production code is written test-first.
+
+1. **Red:** write the smallest test that describes the next behaviour (use requirement IDs in the `describe`/`it` names, e.g. `it("[CHK-06] redacts 6-digit OTPs")`). Run it and confirm it fails for the right reason.
+2. **Green:** write the minimum code to make it pass.
+3. **Refactor:** clean up with all tests green.
+
+Test layers (keep the pyramid: many unit, fewer integration, few E2E):
+
+| Layer | Tool | Runs against | Examples |
+|---|---|---|---|
+| Unit | Vitest | pure functions, no I/O | redaction, URL heuristics, frontmatter schema, feed parsers, AI output schema |
+| Integration | Vitest | Compose `db`, `redis-http`, `ai-mock` | `/api/check` route end to end, rate limiter, spend cap, `check_events` writes, migrations |
+| E2E | Playwright | Compose `web` | landing → check → result, blog index → post → share |
+
+Rules:
+- Every acceptance criterion in the FRS milestone becomes at least one test before the feature is built.
+- Every bug fix starts with a failing test that reproduces it.
+- Privacy rules are tests, not comments: e.g. after a check, assert the submitted text appears in no DB row, log line or Sentry event.
+- Test fixtures (sample posts, scam messages, feed XML, AI responses) live next to tests in `__fixtures__/`. Never use real personal data.
+- Don't mock what Compose can run for real (Postgres, Redis). Do mock paid/external APIs (AI, newsletter, Safe Browsing) at the HTTP boundary.
+- Coverage is a signal, not a goal; but `packages/ai`, redaction, URL heuristics and feed parsers should stay above 90% line coverage.
+- When reporting a task, show the test list written and the final passing run.
 
 ## Non-negotiable rules
 
@@ -136,8 +191,10 @@ If a command doesn't exist yet, create it as part of M0.
 ## Definition of done (every task)
 
 - [ ] Covers the stated requirement IDs and nothing unrelated
-- [ ] Lint, typecheck, tests and build pass
+- [ ] Tests were written first and failed before the implementation (TDD)
+- [ ] Lint, typecheck, tests and build pass, locally and via `pnpm docker:test` / `pnpm docker:e2e`
 - [ ] New logic has unit tests; user flows touched have E2E coverage where the milestone requires it
+- [ ] New services/env vars work in the Compose stack (`compose.yaml`, `.env.docker`, `.env.example` updated)
 - [ ] Privacy and AI safety rules above are respected
 - [ ] `.env.example` and docs updated if needed
 - [ ] `docs/PROGRESS.md` updated
@@ -157,10 +214,12 @@ Create this on the first session, with one checkbox per task broken down from ea
 - [ ] Create apps/web (Next.js, TS strict, Tailwind)
 - [ ] Create packages (ui, db, ai, feeds, i18n, config) with stubs
 - [ ] Shared tsconfig + eslint + prettier
-- [ ] Env validation + .env.example
-- [ ] Vitest + Playwright setup
-- [ ] /api/health route
-- [ ] GitHub Actions CI
+- [ ] Env validation + .env.example + .env.docker
+- [ ] Vitest + Playwright setup (unit + integration projects)
+- [ ] /api/health route (test first)
+- [ ] Dockerfiles (web, worker) + compose.yaml (db, migrate, redis, redis-http, ai-mock, web, worker, test, e2e)
+- [ ] pnpm docker:* scripts
+- [ ] GitHub Actions CI running lint/typecheck/build + docker:test + docker:e2e + dependency scan
 
 ### M1 tasks
 - ...
