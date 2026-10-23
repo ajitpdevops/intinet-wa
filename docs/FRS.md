@@ -2,7 +2,7 @@
 
 **Product / brand:** intinat
 **Repo:** `intinet-wa` (web application). Repo names are fixed; other concerns may move to sibling `intinet-*` repos later, while the product stays "intinat".
-**Version:** 0.1.1 (draft)
+**Version:** 0.2 (draft)
 **Owner:** Ajit
 **Last updated:** 2026-10-23
 
@@ -123,7 +123,7 @@ Priority: **P0** = MVP launch, **P1** = v1 (month 2), **P2** = v2 (month 3+).
 | CHK-07 | Optional opt-in checkbox: "Share this anonymised example to help others" → goes to moderation queue for the scam library. | P1 |
 | CHK-08 | Prompt-injection safety: pasted content is treated strictly as data; the system prompt instructs the model to ignore instructions inside it; output must validate against a JSON schema or the request fails gracefully with "not sure". | P0 |
 | CHK-09 | URL handling: the server does **not** visit the URL. It analyses the URL string (lookalike domains, shorteners, suspicious TLDs) and optionally checks a reputation API (e.g. Google Safe Browsing) when a key is configured. | P0 |
-| CHK-10 | Rate limiting: anonymous users 10 checks/day per IP+device fingerprint; logged-in users 30/day. Friendly message when exceeded. | P0 |
+| CHK-10 | Rate limiting: anonymous users 10 checks/day per client key; logged-in users 30/day (applies from M7, when accounts exist; until then everyone gets the anonymous limit). The client key is a salted hash of the IP address whose salt rotates daily; raw IPs and device fingerprints are never stored. Friendly message when exceeded. | P0 |
 | CHK-11 | Disclaimer on every result: the checker is guidance, not a guarantee. | P0 |
 | CHK-12 | Response in the user's selected language (EN at P0, HI at P1). | P1 |
 | CHK-13 | Copy/share result as a short WhatsApp message ("I checked this message on intinat — likely scam because…"). | P1 |
@@ -208,7 +208,7 @@ Priority: **P0** = MVP launch, **P1** = v1 (month 2), **P2** = v2 (month 3+).
 | NFR-01 | Performance | Landing and blog pages statically generated; Lighthouse ≥ 90 for performance, accessibility, SEO on mobile. |
 | NFR-02 | Performance | Scam checker responds in < 8 s at p95; shows progress state immediately. |
 | NFR-03 | Privacy | No storage of checker inputs by default (CHK-05). Privacy policy written in plain language. Analytics are cookieless/privacy-friendly. Comply with India's DPDP Act principles: purpose limitation, minimal data, deletion on request. |
-| NFR-04 | Security | Secrets only in environment variables; never committed. Row-level security on all user tables. Admin routes server-side role-checked. Security headers (CSP, HSTS, X-Frame-Options). Dependency scanning in CI. |
+| NFR-04 | Security | Secrets only in environment variables; never committed. Row-level security on all user tables, enforced by having the app connect as a restricted (non-owner, no `BYPASSRLS`) database role; migrations run as a separate owner role; an automated test proves RLS blocks cross-user access. Admin routes server-side role-checked. Security headers (CSP, HSTS, X-Frame-Options); the CSP allow-lists only what the app needs (YouTube and Instagram embeds, Cloudflare Turnstile, the chosen analytics and Sentry endpoints). Dependency scanning in CI. |
 | NFR-05 | Abuse | Rate limiting on all AI and lookup endpoints; bot protection (e.g. Turnstile) on forms and checker after first use. |
 | NFR-06 | Cost | Per-request AI cost logged; daily global spend cap configurable via env; when hit, checker shows a friendly "busy" message. |
 | NFR-07 | Accessibility | WCAG 2.1 AA: keyboard navigable, sufficient contrast, alt text, readable font sizes (min 16px body), simple language. |
@@ -216,7 +216,8 @@ Priority: **P0** = MVP launch, **P1** = v1 (month 2), **P2** = v2 (month 3+).
 | NFR-09 | Reliability | If the AI provider fails, checker returns "not sure" with general safety advice, never an error page. |
 | NFR-10 | Content accuracy | Every post requires sources; AI drafts are always human-reviewed before publishing. |
 | NFR-11 | Observability | Structured server logs; error tracking (e.g. Sentry); uptime check on `/` and `/api/health`. |
-| NFR-12 | Testing | Unit tests for redaction, URL heuristics, feed parsers, frontmatter validation; E2E tests for landing → check flow and blog post rendering. |
+| NFR-12 | Testing | Test-driven development: tests are written before the code they cover. Unit tests for redaction, URL heuristics, feed parsers, frontmatter validation; integration tests against real Postgres and Redis; E2E tests for landing → check flow and blog post rendering. Tests and CI never call paid external APIs; the AI provider is replaced by a deterministic mock. |
+| NFR-13 | Local parity | Every service (web, worker, database, Redis, mocks, test runners) runs with Docker Compose using only committed, non-secret defaults. CI runs the same Compose commands as local development. Vercel remains the production host. |
 
 ## 7. Data model (high level)
 
@@ -281,12 +282,13 @@ Build strictly in this order. Each milestone ends with a working, deployable app
 - `.env.example` with every variable documented; env validation fails fast on missing required vars.
 - GitHub Actions CI: install, lint, typecheck, test, build.
 - `/api/health` returns 200.
-- **Accept when:** `pnpm dev` runs, CI passes on a PR, a preview deployment works.
+- Dockerfiles for web and worker; `compose.yaml` with Postgres, migrations, Redis + Upstash-compatible REST proxy, AI mock, web, worker, unit/integration test runner and Playwright E2E runner (NFR-13).
+- **Accept when:** `pnpm dev` runs; `docker compose up` serves `/api/health` with 200; `pnpm docker:test` and `pnpm docker:e2e` pass locally and in CI on a PR; a preview deployment works.
 
 ### M1 — Design system and landing page
 - Brand tokens (colours, type, spacing) in `packages/ui`; light/dark mode.
 - Components: Button, Input, Card, Badge (severity), Alert, Section, Header, Footer.
-- Landing page per LND-01, 03 (with placeholder data), 04–07, 09; legal page shells.
+- Landing page per LND-01, 03 (with placeholder data), 04–07, 09; legal page shells. (LND-02, the embedded mini checker, ships in M3 with the checker API.)
 - All strings via `packages/i18n`.
 - **Accept when:** landing page scores Lighthouse ≥ 90 on mobile and matches LND P0 items.
 
@@ -301,7 +303,7 @@ Build strictly in this order. Each milestone ends with a working, deployable app
 ### M3 — Scam checker v1
 - `/check` page and landing mini-checker sharing one component.
 - `/api/check`: validation → redaction → URL heuristics → AI call with strict JSON schema → response.
-- Rate limiting, Turnstile, spend cap, graceful "not sure" fallback.
+- Rate limiting (CHK-10, salted daily-rotating IP hash), Turnstile, spend cap, graceful "not sure" fallback.
 - `check_events` logging (metadata only).
 - Unit tests: redaction patterns, URL heuristics, schema validation, prompt-injection test cases.
 - **Accept when:** CHK P0 items pass; a test confirms no input content reaches the database or logs.
@@ -345,3 +347,11 @@ Build strictly in this order. Each milestone ends with a working, deployable app
 3. Whether the blog moves to a headless CMS before Hindi launch.
 4. Which regional languages follow Hindi (Marathi? Tamil? Bengali?).
 5. Legal review of disclaimer and privacy policy before launch.
+
+## 12. Change log
+
+| Version | Date | Change |
+|---|---|---|
+| 0.1 | 2026-10-23 | Initial draft. |
+| 0.1.1 | 2026-10-23 | Clarified brand (intinat) vs repo name (`intinet-wa`). |
+| 0.2 | 2026-10-23 | CHK-10: salted IP hash instead of device fingerprint; logged-in limit from M7. NFR-04: restricted DB role + RLS test, CSP allow-list. NFR-12: TDD and AI mock. New NFR-13: Docker Compose parity. M0 acceptance includes Compose and containerised tests. M1 notes LND-02 ships in M3. |
