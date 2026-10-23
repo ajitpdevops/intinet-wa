@@ -1,7 +1,8 @@
 # intinat — Functional Requirements Specification (FRS)
 
-**Repo:** `intinat-wa` (web application)
-**Version:** 0.1 (draft)
+**Product / brand:** intinat
+**Repo:** `intinet-wa` (web application). Repo names are fixed; other concerns may move to sibling `intinet-*` repos later, while the product stays "intinat".
+**Version:** 0.1.1 (draft)
 **Owner:** Ajit
 **Last updated:** 2026-10-23
 

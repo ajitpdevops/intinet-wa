@@ -1,10 +1,10 @@
-# CLAUDE.md — intinat-wa
+# CLAUDE.md — intinet-wa
 
 This file tells Claude how to work in this repository. Read it fully at the start of every session.
 
 ## What this project is
 
-intinat ("Internet is Under Attack") makes security threats and scams understandable for everyday people. This repo (`intinat-wa`) contains the web application: landing page, Threat Hub blog, and tools (AI scam checker first).
+intinat ("Internet is Under Attack") makes security threats and scams understandable for everyday people. This repo (`intinet-wa`; the brand is "intinat", the repo name stays `intinet-wa`) contains the web application: landing page, Threat Hub blog, and tools (AI scam checker first).
 
 **The full spec is in `docs/FRS.md`. It is the source of truth.** Requirement IDs (e.g. `CHK-05`) and milestones (`M0`–`M8`) come from there.
 
@@ -43,7 +43,7 @@ Use the latest stable versions when adding packages. Do not add a dependency tha
 ## Repository structure
 
 ```
-intinat-wa/
+intinet-wa/
 ├── apps/
 │   ├── web/                    # Next.js app: landing, blog, tools, admin
 │   │   ├── app/
